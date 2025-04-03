@@ -35,6 +35,14 @@ def apply_lapacian(image, kernel):
 
     return output
 
+def apply_LoG(image, kernel):
+    # Step 1: Apply Gaussian Blur (to reduce noise)
+    blurred = cv2.GaussianBlur(image, (3, 3), 0)  # Adjust kernel size as needed
+
+    # Step 2: Apply Laplacian filter
+    laplacian = cv2.filter2D(blurred, -1, kernel)
+
+    return laplacian
 
 # dst = cv.Laplacian(src_gray, ddepth, kernel_size)
 dst = apply_lapacian(src_gray , kernel_size)
