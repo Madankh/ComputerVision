@@ -4,15 +4,22 @@ from cv2 import resize, GaussianBlur, subtract, KeyPoint, INTER_LINEAR, INTER_NE
 from functools import cmp_to_key
 import logging
 
-###########################
-# Global Variables
-###########################
+####################
+# Global variables #
+####################
+
 logger = logging.getLogger(__name__)
 float_tolerance = 1e-7
 
-def computeKeypointsAndDescriptors(image, sigma=1.6, num_intervals=3, assume_blur=0.5, image_border_width=5):
-    image = image.astype(float32)
-    base_image = generateBaseImage(image, sigma, assume_blur)
+#################
+# Main function #
+#################
+
+def computeKeypointsAndDescriptors(image, sigma=1.6, num_intervals=3, assumed_blur=0.5, image_border_width=5):
+    """Compute SIFT keypoints and descriptors for an input image
+    """
+    image = image.astype('float32')
+    base_image = generateBaseImage(image, sigma, assumed_blur)
     num_octaves = computeNumberOfOctaves(base_image.shape)
     gaussian_kernels = generateGaussianKernels(sigma, num_intervals)
     gaussian_images = generateGaussianImages(base_image, num_octaves, gaussian_kernels)
@@ -21,8 +28,7 @@ def computeKeypointsAndDescriptors(image, sigma=1.6, num_intervals=3, assume_blu
     keypoints = removeDuplicateKeypoints(keypoints)
     keypoints = convertKeypointsToInputImageSize(keypoints)
     descriptors = generateDescriptors(keypoints, gaussian_images)
-    return keypoints , descriptors
-
+    return keypoints, descriptors
 
 def generateBaseImage(image, sigma, assume_blur):
     logger.debug("Generating base image")
@@ -49,35 +55,57 @@ def generateGaussianKernels(sigma, num_intervals):
     return gaussian_kernels
 
 
-def generateGaussianImages(base_image, num_octaves, gaussian_kernels):
-    """ Generate scale-space pyramid of Gaussian Images"""
-    logger.debug("Generating Gaussian Images")
+def generateGaussianImages(image, num_octaves, gaussian_kernels):
+    """Generate scale-space pyramid of Gaussian images
+    """
+    logger.debug('Generating Gaussian images...')
     gaussian_images = []
+
     for octave_index in range(num_octaves):
-        gaussian_images_in_octaves = []
-        gaussian_images_in_octaves.append(base_image)
+        gaussian_images_in_octave = []
+        gaussian_images_in_octave.append(image)  # first image in octave already has the correct blur
         for gaussian_kernel in gaussian_kernels[1:]:
-            image = GaussianBlur(base_image, (0,0), sigmaX=gaussian_kernel, sigmaY=gaussian_kernel)
-            gaussian_images_in_octaves.append(image)
-        gaussian_images.append(gaussian_images_in_octaves)
-        octave_base = gaussian_images_in_octaves[-3]
-        image = resize(octave_base, (int(octave_base.shape[1]/2), int(octave_base.shape[0]/2)), interpolation=INTER_NEAREST)
-    return array(gaussian_images)
+            image = GaussianBlur(image, (0, 0), sigmaX=gaussian_kernel, sigmaY=gaussian_kernel)
+            gaussian_images_in_octave.append(image)
+        gaussian_images.append(gaussian_images_in_octave)
+        octave_base = gaussian_images_in_octave[-3]
+        image = resize(octave_base, (int(octave_base.shape[1] / 2), int(octave_base.shape[0] / 2)), interpolation=INTER_NEAREST)
+    return gaussian_images
 
 def generateDoGImages(gaussian_images):
-    """Generate Difference-of-Gaussian image pyramid"""
-    logger.debug("Generating difference-of-Gaussian images...")
+    """Generate Difference-of-Gaussians image pyramid
+    """
+    logger.debug('Generating Difference-of-Gaussian images...')
     dog_images = []
 
     for gaussian_images_in_octave in gaussian_images:
         dog_images_in_octave = []
         for first_image, second_image in zip(gaussian_images_in_octave, gaussian_images_in_octave[1:]):
-            dog_images_in_octave.append(subtract(second_image, first_image)) # # ordinary subtraction will not work because the images are unsigned integers
+            dog_images_in_octave.append(subtract(second_image, first_image))  # ordinary subtraction will not work because the images are unsigned integers
         dog_images.append(dog_images_in_octave)
-    return array(dog_images)
+    return dog_images
 
 
-    
+# def findScaleSpaceExtrema(gaussian_images, dog_images, num_intervals, sigma, image_border_width, contrast_threshold=0.04):
+#     """Find pixel positions of all scale-space extrema in the image pyramid
+#     """
+#     logger.debug('Finding scale-space extrema...')
+#     threshold = floor(0.5 * contrast_threshold / num_intervals * 255)  # from OpenCV implementation
+#     keypoints = []
+
+#     for octave_index, dog_images_in_octave in enumerate(dog_images):
+#         for image_index, (first_image, second_image, third_image) in enumerate(zip(dog_images_in_octave, dog_images_in_octave[1:], dog_images_in_octave[2:])):
+#             # (i, j) is the center of the 3x3 array
+#             for i in range(image_border_width, first_image.shape[0] - image_border_width):
+#                 for j in range(image_border_width, first_image.shape[1] - image_border_width):
+#                     if isPixelAnExtremum(first_image[i-1:i+2, j-1:j+2], second_image[i-1:i+2, j-1:j+2], third_image[i-1:i+2, j-1:j+2], threshold):
+#                         localization_result = localizeExtremumViaQuadraticFit(i, j, image_index + 1, octave_index, num_intervals, dog_images_in_octave, sigma, contrast_threshold, image_border_width)
+#                         if localization_result is not None:
+#                             keypoint, localized_image_index = localization_result
+#                             keypoints_with_orientations = computeKeypointsWithOrientations(keypoint, octave_index, gaussian_images[octave_index][localized_image_index])
+#                             for keypoint_with_orientation in keypoints_with_orientations:
+#                                 keypoints.append(keypoint_with_orientation)
+#     return keypoints
 
 def findScaleSpaceExtrema(gaussian_images, dog_images, num_intervals, sigma, image_border_width, contrast_threshold=0.04):
     """
@@ -100,49 +128,27 @@ def findScaleSpaceExtrema(gaussian_images, dog_images, num_intervals, sigma, ima
                             for keypoint_with_orientation in keypoints_with_orientations:
                                 keypoints.append(keypoint_with_orientation)
     return keypoints
-    
+
 def isPixelAnExtremum(first_subimage, second_subimage, third_subimage, threshold):
-    """Return True if the center element of the 3x3x3 input array is strictly greater than or less than all its neighbors, false otherwise"""
-    center_pixel_value = second_subimage[1,1]
+    """Return True if the center element of the 3x3x3 input array is strictly greater than or less than all its neighbors, False otherwise
+    """
+    center_pixel_value = second_subimage[1, 1]
     if abs(center_pixel_value) > threshold:
         if center_pixel_value > 0:
             return all(center_pixel_value >= first_subimage) and \
-            all(center_pixel_value >= third_subimage) and \
-            all(center_pixel_value >= second_subimage[0,:]) and \
-            all(center_pixel_value >= second_subimage[2,:]) and \
-            center_pixel_value >= second_subimage[1,0] and \
-            center_pixel_value >= second_subimage[1,2]
+                   all(center_pixel_value >= third_subimage) and \
+                   all(center_pixel_value >= second_subimage[0, :]) and \
+                   all(center_pixel_value >= second_subimage[2, :]) and \
+                   center_pixel_value >= second_subimage[1, 0] and \
+                   center_pixel_value >= second_subimage[1, 2]
         elif center_pixel_value < 0:
             return all(center_pixel_value <= first_subimage) and \
-            all(center_pixel_value <= third_subimage) and \
-            all(center_pixel_value <= second_subimage[0,:]) and \
-            all(center_pixel_value <= second_subimage[2,:]) and \
-            center_pixel_value <= second_subimage[1,0] and \
-            center_pixel_value <= second_subimage[1,2]
-
+                   all(center_pixel_value <= third_subimage) and \
+                   all(center_pixel_value <= second_subimage[0, :]) and \
+                   all(center_pixel_value <= second_subimage[2, :]) and \
+                   center_pixel_value <= second_subimage[1, 0] and \
+                   center_pixel_value <= second_subimage[1, 2]
     return False
-
-
-def computeGradientAtCenterPixel(pixel_array):
-    # dx = 0.5 * (right_value - left_value)
-    dx = 0.5 * (pixel_array[1 , 1 , 2] - pixel_array[1 , 1 , 0])
-    # dy = 0.5 * (below_value - above_value)
-    dy = 0.5 * (pixel_array[1 , 2 , 1] - pixel_array[1 , 0 , 1])
-    # ds = 0.5 * (more_blurred_value - less_blurred_value)
-    ds = 0.5 * (pixel_array[2 , 1 , 1] - pixel_array[0 , 1 , 1])
-    return array([dx,dy,ds])
-
-def computeHessianAtCenterPixel(pixel_array):
-    center_pixel_value = pixel_array[1,1,1]
-    dxx = pixel_array[1,1,2] - 2 * center_pixel_value + pixel_array[1,1,0]
-    dyy = pixel_array[1,2,1] - 2 * center_pixel_value + pixel_array[1,0,1]
-    dss = pixel_array[2,1,1] - 2 * center_pixel_value + pixel_array[0,1,1]
-    dxy = 0.25 * (pixel_array[1, 2, 2] - pixel_array[1, 2, 0] - pixel_array[1, 0, 2] + pixel_array[1, 0, 0])
-    dxs = 0.25 * (pixel_array[2, 1, 2] - pixel_array[2, 1, 0] - pixel_array[0, 1, 2] + pixel_array[0, 1, 0])
-    dys = 0.25 * (pixel_array[2, 2, 1] - pixel_array[2, 0, 1] - pixel_array[0, 2, 1] + pixel_array[0, 0, 1])
-    return array([[dxx, dxy, dxs], 
-                  [dxy, dyy, dys],
-                  [dxs, dys, dss]])
 
 
 def localizeExtremumViaQuadraticFit(i, j, image_index, octave_index, num_intervals, dog_images_in_octave, sigma, contrast_threshold, image_border_width, eigenvalue_ratio=10, num_attempts_until_convergence=5):
@@ -189,6 +195,36 @@ def localizeExtremumViaQuadraticFit(i, j, image_index, octave_index, num_interva
             keypoint.response = abs(functionValueAtUpdatedExtremum)
             return keypoint, image_index
     return None
+
+def computeGradientAtCenterPixel(pixel_array):
+    """Approximate gradient at center pixel [1, 1, 1] of 3x3x3 array using central difference formula of order O(h^2), where h is the step size
+    """
+    # With step size h, the central difference formula of order O(h^2) for f'(x) is (f(x + h) - f(x - h)) / (2 * h)
+    # Here h = 1, so the formula simplifies to f'(x) = (f(x + 1) - f(x - 1)) / 2
+    # NOTE: x corresponds to second array axis, y corresponds to first array axis, and s (scale) corresponds to third array axis
+    dx = 0.5 * (pixel_array[1, 1, 2] - pixel_array[1, 1, 0])
+    dy = 0.5 * (pixel_array[1, 2, 1] - pixel_array[1, 0, 1])
+    ds = 0.5 * (pixel_array[2, 1, 1] - pixel_array[0, 1, 1])
+    return array([dx, dy, ds])
+
+def computeHessianAtCenterPixel(pixel_array):
+    """Approximate Hessian at center pixel [1, 1, 1] of 3x3x3 array using central difference formula of order O(h^2), where h is the step size
+    """
+    # With step size h, the central difference formula of order O(h^2) for f''(x) is (f(x + h) - 2 * f(x) + f(x - h)) / (h ^ 2)
+    # Here h = 1, so the formula simplifies to f''(x) = f(x + 1) - 2 * f(x) + f(x - 1)
+    # With step size h, the central difference formula of order O(h^2) for (d^2) f(x, y) / (dx dy) = (f(x + h, y + h) - f(x + h, y - h) - f(x - h, y + h) + f(x - h, y - h)) / (4 * h ^ 2)
+    # Here h = 1, so the formula simplifies to (d^2) f(x, y) / (dx dy) = (f(x + 1, y + 1) - f(x + 1, y - 1) - f(x - 1, y + 1) + f(x - 1, y - 1)) / 4
+    # NOTE: x corresponds to second array axis, y corresponds to first array axis, and s (scale) corresponds to third array axis
+    center_pixel_value = pixel_array[1, 1, 1]
+    dxx = pixel_array[1, 1, 2] - 2 * center_pixel_value + pixel_array[1, 1, 0]
+    dyy = pixel_array[1, 2, 1] - 2 * center_pixel_value + pixel_array[1, 0, 1]
+    dss = pixel_array[2, 1, 1] - 2 * center_pixel_value + pixel_array[0, 1, 1]
+    dxy = 0.25 * (pixel_array[1, 2, 2] - pixel_array[1, 2, 0] - pixel_array[1, 0, 2] + pixel_array[1, 0, 0])
+    dxs = 0.25 * (pixel_array[2, 1, 2] - pixel_array[2, 1, 0] - pixel_array[0, 1, 2] + pixel_array[0, 1, 0])
+    dys = 0.25 * (pixel_array[2, 2, 1] - pixel_array[2, 0, 1] - pixel_array[0, 2, 1] + pixel_array[0, 0, 1])
+    return array([[dxx, dxy, dxs], 
+                  [dxy, dyy, dys],
+                  [dxs, dys, dss]])
 
 
 def computeKeypointsWithOrientations(keypoint, octave_index, gaussian_image, radius_factor=3, num_bins=36, peak_ratio=0.8, scale_factor=1.5):
@@ -301,6 +337,7 @@ def computeKeypointsWithOrientations(keypoint, octave_index, gaussian_image, rad
     # Return all keypoints with their assigned orientations
     return keypoints_with_orientations
 
+
 def compareKeypoints(keypoint1, keypoint2):
     """Return True if keypoint1 is less than keypoint2
     """
@@ -318,26 +355,27 @@ def compareKeypoints(keypoint1, keypoint2):
         return keypoint2.octave - keypoint1.octave
     return keypoint2.class_id - keypoint1.class_id
 
-
 def removeDuplicateKeypoints(keypoints):
-    if len(keypoints) > 2:
+    """Sort keypoints and remove duplicate keypoints
+    """
+    if len(keypoints) < 2:
         return keypoints
-    
+
     keypoints.sort(key=cmp_to_key(compareKeypoints))
     unique_keypoints = [keypoints[0]]
 
-
     for next_keypoint in keypoints[1:]:
-        last_unique_keypointt = unique_keypoints[-1]
-        if last_unique_keypointt.pt[0] != next_keypoint.pt[0] or \
-        last_unique_keypointt.pt[1] != next_keypoint.pt[1] or \
-        last_unique_keypointt.size != next_keypoint.size or \
-        last_unique_keypointt.angle != next_keypoint.angle :
+        last_unique_keypoint = unique_keypoints[-1]
+        if last_unique_keypoint.pt[0] != next_keypoint.pt[0] or \
+           last_unique_keypoint.pt[1] != next_keypoint.pt[1] or \
+           last_unique_keypoint.size != next_keypoint.size or \
+           last_unique_keypoint.angle != next_keypoint.angle:
             unique_keypoints.append(next_keypoint)
-
     return unique_keypoints
 
 def convertKeypointsToInputImageSize(keypoints):
+    """Convert keypoint point, size, and octave to input image size
+    """
     converted_keypoints = []
     for keypoint in keypoints:
         keypoint.pt = tuple(0.5 * array(keypoint.pt))
@@ -346,14 +384,16 @@ def convertKeypointsToInputImageSize(keypoints):
         converted_keypoints.append(keypoint)
     return converted_keypoints
 
+
 def unpackOctave(keypoint):
+    """Compute octave, layer, and scale from a keypoint
+    """
     octave = keypoint.octave & 255
     layer = (keypoint.octave >> 8) & 255
     if octave >= 128:
         octave = octave | -128
-    scale = 1 / float32(1<<octave) if octave >= 0 else float32(1 << -octave)
+    scale = 1 / float32(1 << octave) if octave >= 0 else float32(1 << -octave)
     return octave, layer, scale
-
 
 def generateDescriptors(keypoints, gaussian_images, window_width=4, num_bins=8, scale_multiplier=3, descriptor_max_value=0.2):
     """Generate descriptors for each keypoint
@@ -363,7 +403,7 @@ def generateDescriptors(keypoints, gaussian_images, window_width=4, num_bins=8, 
 
     for keypoint in keypoints:
         octave, layer, scale = unpackOctave(keypoint)
-        gaussian_image = gaussian_images[octave + 1, layer]
+        gaussian_image = gaussian_images[octave + 1][layer]
         num_rows, num_cols = gaussian_image.shape
         point = round(scale * array(keypoint.pt)).astype('int')
         bins_per_degree = num_bins / 360.
@@ -445,4 +485,3 @@ def generateDescriptors(keypoints, gaussian_images, window_width=4, num_bins=8, 
         descriptor_vector[descriptor_vector > 255] = 255
         descriptors.append(descriptor_vector)
     return array(descriptors, dtype='float32')
-

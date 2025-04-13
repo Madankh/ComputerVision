@@ -7,15 +7,19 @@ logger = logging.getLogger(__name__)
 
 MIN_MATCH_COUNT = 10
 
-img2 = cv2.imread('./1.png', 0)  # queryImage
-img1 = cv2.imread('./2 copy.png', 0)  # trainImage
+# img1 = cv2.imread('./2.png', 0)  # queryImage
+# img2 = cv2.imread('./1.png', 0)  # TrainImage
 
-img1 = cv2.resize(img1, (0, 0), fx=0.25, fy=0.25)
-img2 = cv2.resize(img2, (0, 0), fx=0.25, fy=0.25)
+img1 = cv2.imread('2.png', 0)  # Single book cover
+img2 = cv2.imread('1.png', 0)  # Multiple books image
+
+# img1 = cv2.resize(img1, (0, 0), fx=0.25, fy=0.25)
+# img2 = cv2.resize(img2, (0, 0), fx=0.25, fy=0.25)
 
 # Compute SIFT keypoints and descriptors
 kp1, des1 = pysift.computeKeypointsAndDescriptors(img1)
 kp2, des2 = pysift.computeKeypointsAndDescriptors(img2)
+print(kp1, "kp1")
 
 # Initialize and use FLANN
 FLANN_INDEX_KDTREE = 0
