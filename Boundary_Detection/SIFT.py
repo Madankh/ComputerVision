@@ -1,6 +1,6 @@
 import numpy as np
 import cv2
-import pysift
+import Boundary_Detection.customSIFT as customSIFT
 from matplotlib import pyplot as plt
 import logging
 logger = logging.getLogger(__name__)
@@ -17,8 +17,8 @@ img2 = cv2.imread('1.png', 0)  # Multiple books image
 # img2 = cv2.resize(img2, (0, 0), fx=0.25, fy=0.25)
 
 # Compute SIFT keypoints and descriptors
-kp1, des1 = pysift.computeKeypointsAndDescriptors(img1)
-kp2, des2 = pysift.computeKeypointsAndDescriptors(img2)
+kp1, des1 = customSIFT.computeKeypointsAndDescriptors(img1)
+kp2, des2 = customSIFT.computeKeypointsAndDescriptors(img2)
 print(kp1, "kp1")
 
 # Initialize and use FLANN
